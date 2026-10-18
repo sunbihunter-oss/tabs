@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>탭 한꺼번에 열기</title>
+<style>
+body{font-family:system-ui,"Malgun Gothic","Apple SD Gothic Neo",sans-serif;max-width:900px;margin:24px auto;padding:0 16px;color:#222}
+h1{font-size:22px}
+#all{font-size:22px;padding:14px 28px;background:#2b6cb0;color:#fff;border:0;border-radius:8px;cursor:pointer;margin:8px 0 16px}
+#all:hover{background:#245a93}
+.note{background:#fff8e1;border:1px solid #f0c36d;border-radius:6px;padding:10px 14px;font-size:14px;line-height:1.6}
+#status{color:#555;margin:8px 0}
+li{margin:4px 0;word-break:break-all}
+.err{color:#b00020}
+</style>
+</head>
+<body>
+<h1 id="title">탭 한꺼번에 열기</h1>
+<button id="all" disabled>모두 열기</button>
+<div id="status">링크를 읽는 중…</div>
+<div class="note">
+<b>안내:</b> 페이지를 열면 모든 탭을 자동으로 열려고 시도합니다.
+Firefox 상단에 <b>“팝업 차단”</b> 알림줄이 나타나면 <b>[설정(옵션)] → “sunbihunter-oss.github.io의 팝업 허용”</b>을 선택한 다음,
+위의 <b>“모두 열기”</b> 버튼을 누르세요. (한 번 허용하면 다음부터는 바로 열립니다.)<br>
+링크 목록은 주소의 # 뒤에만 들어 있어 서버로 전송되지 않습니다.
+</div>
+<ol id="list"></ol>
+<script>
+(function(){
+  var urls=[];
+  function b64urlToBytes(s){
+    s=s.replace(/-/g,'+').replace(/_/g,'/');
+    while(s.length%4) s+='=';
+    var bin=atob(s), out=new Uint8Array(bin.length);
+    for(var i=0;i<bin.length;i++) out[i]=bin.charCodeAt(i);
+    return out;
+  }
+  function inflate(bytes){
+    var ds=new DecompressionStream('deflate-raw');
+    var stream=new Blob([bytes]).stream().pipeThrough(ds);
+    return new Response(stream).text();
+  }
+  // 지원 형식:
+  //   #z=<base64url(deflate-raw(UTF-8, 줄바꿈으로 연결한 URL 목록))>   (압축, 기본)
+  //   #u=<encodeURIComponent(줄바꿈으로 연결한 URL 목록)>                (평문 대체)
+  //   #<URL>|<URL>|...  또는 줄바꿈 구분                                  (평문 대체)
+  //   선택: &t=<encodeURIComponent(제목)>
+  function parse(hash){
+    var h=hash.replace(/^#/,''), title=null, m=h.match(/[&]t=([^&]*)/);
+    if(m){ title=decodeURIComponent(m[1]); h=h.replace(m[0],''); }
+    if(h.indexOf('z=')===0){
+      return inflate(b64urlToBytes(h.slice(2))).then(function(t){return {text:t,title:title};});
+    }
+    if(h.indexOf('u=')===0) return Promise.resolve({text:decodeURIComponent(h.slice(2)),title:title});
+    var t; try{ t=decodeURIComponent(h); }catch(e){ t=h; }
+    return Promise.resolve({text:t.replace(/\|(?=https?:)/g,'\n'),title:title});
+  }
+  function openAll(){
+    var blocked=0;
+    urls.forEach(function(u){ var w=window.open(u,'_blank','noopener'); if(w===null) blocked++; });
+    return blocked;
+  }
+  var st=document.getElementById('status'), btn=document.getElementById('all');
+  parse(location.hash).then(function(r){
+    urls=r.text.split(/\r?\n/).map(function(s){return s.trim();}).filter(function(s){return /^https?:\/\//i.test(s);});
+    if(r.title){ document.title=r.title+' – 탭 열기'; document.getElementById('title').textContent=r.title; }
+    if(!urls.length){ st.innerHTML='<span class="err">주소(# 뒤)에 열 링크가 없습니다.</span>'; return; }
+    var ol=document.getElementById('list');
+    urls.forEach(function(u){ var li=document.createElement('li'), a=document.createElement('a');
+      a.href=u; a.target='_blank'; a.rel='noopener noreferrer'; a.textContent=u; li.appendChild(a); ol.appendChild(li); });
+    btn.textContent='모두 열기 ('+urls.length+'개 탭)'; btn.disabled=false;
+    btn.onclick=function(){ openAll(); st.textContent=urls.length+'개 탭 열기를 시도했습니다. 일부만 열렸다면 팝업을 허용한 뒤 다시 누르세요.'; };
+    openAll();
+    st.textContent=urls.length+'개 링크. 자동으로 열기를 시도했습니다. 탭이 열리지 않았다면 팝업을 허용한 뒤 “모두 열기”를 누르세요.';
+  }).catch(function(e){ st.innerHTML='<span class="err">링크를 해독하지 못했습니다: '+String(e).replace(/</g,'&lt;')+'</span>'; });
+})();
+</script>
+</body>
+</html>
